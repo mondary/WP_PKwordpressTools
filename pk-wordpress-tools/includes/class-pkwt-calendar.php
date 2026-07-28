@@ -24,11 +24,15 @@ class PKWT_Calendar {
 	private function __construct() {}
 
 	public function init(): void {
-		add_action( 'admin_menu', [ $this, 'register_menu' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_calendar_assets' ] );
-		add_action( 'enqueue_block_editor_assets', [ $this, 'enqueue_editor_assets' ] );
-		add_action( 'wp_ajax_pkwt_calendar_move_post', [ $this, 'ajax_move_post' ] );
-		add_action( 'wp_ajax_pkwt_calendar_next_slot', [ $this, 'ajax_next_slot' ] );
+		if ( PKWT_Native_Features::is_enabled( 'editorial-calendar' ) ) {
+			add_action( 'admin_menu', [ $this, 'register_menu' ] );
+			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_calendar_assets' ] );
+			add_action( 'wp_ajax_pkwt_calendar_move_post', [ $this, 'ajax_move_post' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'editor-next-free-slot' ) ) {
+			add_action( 'enqueue_block_editor_assets', [ $this, 'enqueue_editor_assets' ] );
+			add_action( 'wp_ajax_pkwt_calendar_next_slot', [ $this, 'ajax_next_slot' ] );
+		}
 	}
 
 	public function register_menu(): void {

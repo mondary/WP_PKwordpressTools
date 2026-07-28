@@ -97,20 +97,32 @@
 			document.body.removeChild(ta);
 		}
 
-		// ---------- Feature toggle switches (built-in features) ----------
-		$('.pkwt-feature-toggle').on('change', function () {
+		// ---------- Native feature toggle switches ----------
+		$('.pkwt-native-feature-toggle').on('change', function () {
 			var feature = $(this).data('feature');
 			var enabled = $(this).is(':checked');
 			var ajaxUrl = (window.PKWT && PKWT.ajaxUrl) || '';
 			var nonce = (window.PKWT && PKWT.nonce) || '';
+			var $toggle = $(this);
+			var $item = $toggle.closest('.pkwt-native-feature-item');
+			$item.toggleClass('is-on', enabled);
+			$toggle.prop('disabled', true);
 			$.post(ajaxUrl, {
 				action: 'pkwt_toggle_feature',
 				nonce: nonce,
 				feature: feature,
 				enabled: enabled
-			}, function () {}.bind(this)).fail(function () {
-				$(this).prop('checked', !enabled);
-			}.bind(this));
+			}).done(function (response) {
+				if (!response || !response.success) {
+					$item.toggleClass('is-on', !enabled);
+					$toggle.prop('checked', !enabled);
+				}
+			}).fail(function () {
+				$item.toggleClass('is-on', !enabled);
+				$toggle.prop('checked', !enabled);
+			}).always(function () {
+				$toggle.prop('disabled', false);
+			});
 		});
 
 		// ---------- Preset toggle switches ----------
@@ -125,6 +137,25 @@
 				action: 'pkwt_toggle_preset',
 				nonce: nonce,
 				slug: slug,
+				enabled: enabled
+			}).fail(function () {
+				$item.toggleClass('is-on', !enabled);
+				$(this).prop('checked', !enabled);
+			}.bind(this));
+		});
+
+		// ---------- Custom snippet toggle switches ----------
+		$('.pkwt-snippet-toggle').on('change', function () {
+			var id = $(this).data('id');
+			var enabled = $(this).is(':checked');
+			var ajaxUrl = (window.PKWT && PKWT.ajaxUrl) || '';
+			var nonce = (window.PKWT && PKWT.nonce) || '';
+			var $item = $(this).closest('.pkwt-snippet-item');
+			$item.toggleClass('is-on', enabled);
+			$.post(ajaxUrl, {
+				action: 'pkwt_toggle_snippet',
+				nonce: nonce,
+				id: id,
 				enabled: enabled
 			}).fail(function () {
 				$item.toggleClass('is-on', !enabled);

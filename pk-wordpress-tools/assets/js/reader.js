@@ -6,12 +6,14 @@
 	}
 
 	function pkwtInitReader() {
+		if (!window.PKWTReader || !PKWTReader.features || !PKWTReader.features.newsPlayer) return;
 		var pkwtLaunch = document.querySelector('.pkwt-reader-launch');
 		var pkwtDialog = document.querySelector('.pkwt-reader');
-		if (!pkwtLaunch || !pkwtDialog || !window.PKWTReader) return;
+		if (!pkwtLaunch || !pkwtDialog) return;
 
 		var pkwtArticle = pkwtDialog.querySelector('.pkwt-reader__article');
 		var pkwtStatus = pkwtDialog.querySelector('.pkwt-reader__status');
+		var pkwtRetry = pkwtDialog.querySelector('.pkwt-reader__retry');
 		var pkwtClose = pkwtDialog.querySelector('.pkwt-reader__close');
 		var pkwtPrevious = pkwtDialog.querySelector('.pkwt-reader__previous');
 		var pkwtNext = pkwtDialog.querySelector('.pkwt-reader__next');
@@ -22,6 +24,7 @@
 		var pkwtRequested = false;
 
 		function pkwtSetStatus(message) { pkwtStatus.textContent = message; }
+		function pkwtSetRetryVisible(visible) { pkwtRetry.hidden = !visible; }
 
 		function pkwtRenderPost() {
 			var pkwtPost = pkwtPosts[pkwtIndex];
@@ -34,6 +37,7 @@
 			pkwtNext.disabled = pkwtIndex === pkwtPosts.length - 1;
 			pkwtPosition.textContent = (pkwtIndex + 1) + ' / ' + pkwtPosts.length;
 			pkwtSetStatus('');
+			pkwtSetRetryVisible(false);
 			pkwtDialog.scrollTop = 0;
 		}
 
@@ -50,13 +54,14 @@
 			pkwtRequested = true;
 			pkwtArticle.setAttribute('aria-busy', 'true');
 			pkwtSetStatus(PKWTReader.i18n.loading);
+			pkwtSetRetryVisible(false);
 			window.fetch(PKWTReader.apiUrl, { credentials: 'same-origin' })
 				.then(function (response) { if (!response.ok) throw new Error('Reader request failed'); return response.json(); })
 				.then(function (posts) {
 					pkwtPosts = Array.isArray(posts) ? posts : [];
 					if (pkwtPosts.length) pkwtRenderPost(); else pkwtSetStatus(PKWTReader.i18n.empty);
 				})
-				.catch(function () { pkwtSetStatus(PKWTReader.i18n.error); })
+				.catch(function () { pkwtRequested = false; pkwtSetStatus(PKWTReader.i18n.error); pkwtSetRetryVisible(true); })
 				.finally(function () { pkwtArticle.setAttribute('aria-busy', 'false'); });
 		}
 
@@ -84,6 +89,7 @@
 
 		pkwtLaunch.addEventListener('click', pkwtOpen);
 		pkwtClose.addEventListener('click', pkwtCloseReader);
+		pkwtRetry.addEventListener('click', pkwtLoadPosts);
 		pkwtPrevious.addEventListener('click', function () { pkwtChangePost(-1); });
 		pkwtNext.addEventListener('click', function () { pkwtChangePost(1); });
 		document.addEventListener('keydown', function (event) {
@@ -103,6 +109,7 @@
 	}
 
 	function pkwtInitSearchShortcut() {
+		if (!window.PKWTReader || !PKWTReader.features || !PKWTReader.features.postSearchAuto) return;
 		document.addEventListener('keydown', function (event) {
 			if (event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1 || pkwtIsEditable(event.target)) return;
 			var pkwtToggle = document.querySelector('.search-toggle-open');
@@ -121,6 +128,7 @@
 	}
 
 	function pkwtInitProgress() {
+		if (!window.PKWTReader || !PKWTReader.features || !PKWTReader.features.readingProgress) return;
 		var pkwtBar = document.querySelector('.pkwt-reading-progress__bar');
 		if (!pkwtBar) return;
 		var pkwtFrame = 0;

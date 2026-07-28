@@ -7,6 +7,7 @@
 	width: 80px;
 	height: 60px;
 	margin-bottom: 5px;
+	border: 1px solid #111;
 	object-fit: cover;
 }
 
@@ -40,24 +41,27 @@
 	width: 150px;
 	min-height: 26px;
 	padding: 2px 6px;
-	border: 1px solid #50575e;
-	border-radius: 2px;
+	border: 1px solid #111;
+	border-radius: 0;
 	background: #fff;
 	color: #1d2327;
 }
 
 #wpadminbar .pkwt-admin-bar-search button {
 	min-height: 26px;
-	border: 1px solid #2271b1;
-	border-radius: 2px;
-	background: #2271b1;
+	border: 1px solid #111;
+	border-radius: 0;
+	background: #111;
 	color: #fff;
 	cursor: pointer;
+	font: 700 10px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+	letter-spacing: .04em;
+	text-transform: uppercase;
 }
 
 #wpadminbar .pkwt-admin-bar-search input[type="search"]:focus,
 #wpadminbar .pkwt-admin-bar-search button:focus {
-	outline: 2px solid #72aee6;
+	outline: 2px solid #3f3aa4;
 	outline-offset: 1px;
 }
 

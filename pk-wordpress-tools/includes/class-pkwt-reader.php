@@ -33,9 +33,13 @@ class PKWT_Reader {
 		}
 
 		$this->initialized = true;
-		add_action( 'rest_api_init', [ $this, 'register_routes' ] );
-		add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
-		add_action( 'wp_footer', [ $this, 'render_public_ui' ] );
+		if ( PKWT_Native_Features::is_enabled( 'news-player' ) ) {
+			add_action( 'rest_api_init', [ $this, 'register_routes' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'news-player' ) || PKWT_Native_Features::is_enabled( 'post-search-auto' ) || PKWT_Native_Features::is_enabled( 'reading-progress' ) ) {
+			add_action( 'wp_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+			add_action( 'wp_footer', [ $this, 'render_public_ui' ] );
+		}
 	}
 
 	public function register_routes(): void {
@@ -65,6 +69,11 @@ class PKWT_Reader {
 			'PKWTReader',
 			[
 				'apiUrl' => esc_url_raw( rest_url( self::REST_NAMESPACE . self::REST_ROUTE ) ),
+				'features' => [
+					'newsPlayer'     => PKWT_Native_Features::is_enabled( 'news-player' ),
+					'postSearchAuto' => PKWT_Native_Features::is_enabled( 'post-search-auto' ),
+					'readingProgress'=> PKWT_Native_Features::is_enabled( 'reading-progress' ),
+				],
 				'i18n'   => [
 					'loading' => __( 'Loading latest posts...', 'pk-wordpress-tools' ),
 					'error'   => __( 'Posts could not be loaded. Please try again.', 'pk-wordpress-tools' ),
@@ -86,6 +95,7 @@ class PKWT_Reader {
 				'post_type'              => 'post',
 				'post_status'            => 'publish',
 				'posts_per_page'         => 20,
+				'has_password'           => false,
 				'orderby'                => 'date',
 				'order'                  => 'DESC',
 				'ignore_sticky_posts'    => true,
@@ -96,6 +106,10 @@ class PKWT_Reader {
 		$data = [];
 
 		foreach ( $posts as $post ) {
+			if ( '' !== $post->post_password ) {
+				continue;
+			}
+
 			$content = wp_kses_post( apply_filters( 'the_content', $post->post_content ) );
 			$excerpt = wp_kses_post( get_the_excerpt( $post ) );
 			$image   = get_the_post_thumbnail_url( $post, 'large' );
@@ -153,6 +167,7 @@ class PKWT_Reader {
 			return;
 		}
 		?>
+		<?php if ( PKWT_Native_Features::is_enabled( 'news-player' ) ) : ?>
 		<button class="pkwt-reader-launch" type="button" aria-haspopup="dialog" aria-controls="pkwt-reader-dialog">
 			<span class="pkwt-reader-launch__icon" aria-hidden="true">&#9654;</span>
 			<span><?php esc_html_e( 'News player', 'pk-wordpress-tools' ); ?></span>
@@ -164,6 +179,7 @@ class PKWT_Reader {
 					<button class="pkwt-reader__close" type="button" aria-label="<?php esc_attr_e( 'Close news player', 'pk-wordpress-tools' ); ?>"><span aria-hidden="true">&times;</span></button>
 				</header>
 				<div class="pkwt-reader__status" aria-live="polite"></div>
+				<button class="pkwt-reader__retry" type="button" hidden><?php esc_html_e( 'Retry loading posts', 'pk-wordpress-tools' ); ?></button>
 				<article class="pkwt-reader__article" aria-busy="false"></article>
 				<footer class="pkwt-reader__controls">
 					<button class="pkwt-reader__previous" type="button"><?php esc_html_e( 'Previous', 'pk-wordpress-tools' ); ?></button>
@@ -172,7 +188,8 @@ class PKWT_Reader {
 				</footer>
 			</div>
 		</div>
-		<?php if ( is_singular( 'post' ) ) : ?>
+		<?php endif; ?>
+		<?php if ( PKWT_Native_Features::is_enabled( 'reading-progress' ) && is_singular( 'post' ) ) : ?>
 			<div class="pkwt-reading-progress" aria-hidden="true"><span class="pkwt-reading-progress__bar"></span></div>
 		<?php endif; ?>
 		<?php

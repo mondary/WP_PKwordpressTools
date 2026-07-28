@@ -23,6 +23,7 @@ class PKWT_Admin {
 	const MGR_SLUG   = 'pkwt-manager';
 	const IMP_SLUG   = 'pkwt-import';
 	const ABOUT_SLUG = 'pkwt-about';
+	const PERSONAL_LIBRARY_OPTION = 'pkwt_personal_snippet_library';
 
 	/**
 	 * Singleton accessor.
@@ -42,6 +43,7 @@ class PKWT_Admin {
 		add_action( 'admin_enqueue_scripts', [ $this, 'maybe_enqueue_plugins_screen_assets' ], 20 );
 		add_action( 'wp_ajax_pkwt_toggle_feature', [ $this, 'ajax_toggle_feature' ] );
 		add_action( 'wp_ajax_pkwt_toggle_preset', [ $this, 'ajax_toggle_preset' ] );
+		add_action( 'wp_ajax_pkwt_toggle_snippet', [ $this, 'ajax_toggle_snippet' ] );
 	}
 
 	/* ---------------------------------------------------------------------
@@ -159,7 +161,7 @@ class PKWT_Admin {
 			'ajaxUrl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( 'pkwt_note_save' ),
 			'i18n'    => [
-				'confirmDelete' => __( 'Supprimer ce snippet ?', 'pk-wordpress-tools' ),
+				'confirmDelete' => __( 'Supprimer définitivement ce snippet et ses révisions ?', 'pk-wordpress-tools' ),
 				'saved'         => __( 'Enregistré', 'pk-wordpress-tools' ),
 				'error'         => __( 'Erreur', 'pk-wordpress-tools' ),
 				'copied'        => __( 'Copié !', 'pk-wordpress-tools' ),
@@ -219,16 +221,14 @@ class PKWT_Admin {
 			wp_send_json_error( [ 'message' => __( 'Permission refusée.', 'pk-wordpress-tools' ) ], 403 );
 		}
 
-		$feature = isset( $_POST['feature'] ) ? sanitize_text_field( wp_unslash( $_POST['feature'] ) ) : '';
-		$enabled = isset( $_POST['enabled'] ) ? (bool) $_POST['enabled'] : false;
-
-		$known = [ 'plugin_notes' ];
-		if ( ! in_array( $feature, $known, true ) ) {
-			wp_send_json_error( [ 'message' => __( 'Feature inconnue.', 'pk-wordpress-tools' ) ] );
-		}
+		$feature = isset( $_POST['feature'] ) ? sanitize_key( wp_unslash( $_POST['feature'] ) ) : '';
+		$enabled_value = isset( $_POST['enabled'] ) ? sanitize_text_field( wp_unslash( $_POST['enabled'] ) ) : '';
+		$enabled       = 'false' !== $enabled_value && '0' !== $enabled_value && '' !== $enabled_value;
 
 		if ( 'plugin_notes' === $feature ) {
 			PKWT_Notes::set_enabled( $enabled );
+		} elseif ( ! PKWT_Native_Features::set_enabled( $feature, $enabled ) ) {
+			wp_send_json_error( [ 'message' => __( 'Feature inconnue.', 'pk-wordpress-tools' ) ] );
 		}
 
 		wp_send_json_success( [ 'feature' => $feature, 'enabled' => $enabled ] );
@@ -254,6 +254,27 @@ class PKWT_Admin {
 
 		PKWT_Lab::set_active( $slug, $enabled );
 		wp_send_json_success( [ 'slug' => $slug, 'enabled' => $enabled ] );
+	}
+
+	/**
+	 * AJAX: toggle a custom snippet on/off.
+	 */
+	public function ajax_toggle_snippet(): void {
+		check_ajax_referer( 'pkwt_note_save', 'nonce' );
+
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_send_json_error( [ 'message' => __( 'Permission refusée.', 'pk-wordpress-tools' ) ], 403 );
+		}
+
+		$id      = isset( $_POST['id'] ) ? absint( $_POST['id'] ) : 0;
+		$enabled = ! empty( $_POST['enabled'] );
+		$snippet = PKWT_Snippets::instance()->get_snippet( $id );
+		if ( ! $snippet ) {
+			wp_send_json_error( [ 'message' => __( 'Snippet inconnu.', 'pk-wordpress-tools' ) ], 404 );
+		}
+
+		PKWT_Snippets::instance()->toggle_snippet( $id, $enabled );
+		wp_send_json_success( [ 'id' => $id, 'enabled' => $enabled ] );
 	}
 
 	/**
@@ -374,6 +395,58 @@ class PKWT_Admin {
 		set_transient( $transient, $existing, 120 );
 	}
 
+	/**
+	 * Send the existing snippet export as a backup download.
+	 */
+	private function maybe_download_snippets_export(): void {
+		if ( ! isset( $_GET['action'] ) || 'export' !== sanitize_text_field( wp_unslash( $_GET['action'] ) ) ) {
+			return;
+		}
+
+		$nonce = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'pkwt-export' ) ) {
+			wp_die( esc_html__( 'Lien de sauvegarde expiré ou invalide.', 'pk-wordpress-tools' ) );
+		}
+
+		$json = PKWT_Snippets::instance()->export_json();
+		nocache_headers();
+		header( 'Content-Type: application/json; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename="pkwt-snippets-' . gmdate( 'Y-m-d-His' ) . '.json"' );
+		header( 'Content-Length: ' . strlen( $json ) );
+		echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		exit;
+	}
+
+	/**
+	 * Return valid personal-library IDs and remove stale option values.
+	 *
+	 * @param array|null $snippets Existing snippet rows, when already available.
+	 * @return int[]
+	 */
+	private function personal_library_ids( ?array $snippets = null ): array {
+		$stored = get_option( self::PERSONAL_LIBRARY_OPTION, [] );
+		$stored = is_array( $stored ) ? $stored : [];
+		$ids    = array_values( array_unique( array_filter( array_map( 'absint', $stored ) ) ) );
+		$snippets = $snippets ?? PKWT_Snippets::instance()->get_all_snippets( true );
+		$valid_ids = array_map( static fn( object $snippet ): int => (int) $snippet->id, $snippets );
+		$ids       = array_values( array_intersect( $ids, $valid_ids ) );
+
+		if ( $stored !== $ids ) {
+			update_option( self::PERSONAL_LIBRARY_OPTION, $ids );
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * Persist a normalized personal-library ID list.
+	 *
+	 * @param int[] $ids Snippet IDs.
+	 */
+	private function update_personal_library_ids( array $ids ): void {
+		update_option( self::PERSONAL_LIBRARY_OPTION, array_values( array_unique( array_filter( array_map( 'absint', $ids ) ) ) ) );
+	}
+
 	/* ---------------------------------------------------------------------
 	 * PAGE: SNIPPETS (list)
 	 * ------------------------------------------------------------------- */
@@ -386,9 +459,19 @@ class PKWT_Admin {
 			wp_die( esc_html__( 'Vous n\'avez pas la permission d\'accéder à cette page.', 'pk-wordpress-tools' ) );
 		}
 
+		$this->maybe_download_snippets_export();
 		$this->dispatch_snippet_actions();
+		$this->dispatch_backup_actions();
 
-		$snippets = PKWT_Snippets::instance()->get_all_snippets();
+		$status             = isset( $_GET['snippet_status'] ) ? sanitize_key( wp_unslash( $_GET['snippet_status'] ) ) : 'all';
+		$status             = in_array( $status, [ 'all', 'active', 'inactive', 'trash', 'revisions' ], true ) ? $status : 'all';
+		$snippets           = PKWT_Snippets::instance()->get_snippets_by_status( $status );
+		$counts             = PKWT_Snippets::instance()->get_snippet_counts();
+		$personal_library   = $this->personal_library_ids();
+		$personal_snippets  = 'trash' === $status ? [] : array_values( array_filter( $snippets, static fn( object $snippet ): bool => in_array( (int) $snippet->id, $personal_library, true ) ) );
+		$regular_snippets   = 'trash' === $status ? $snippets : array_values( array_filter( $snippets, static fn( object $snippet ): bool => ! in_array( (int) $snippet->id, $personal_library, true ) ) );
+		$backup_url         = wp_nonce_url( admin_url( 'admin.php?page=pkwt-snippets&action=export' ), 'pkwt-export' );
+		$backups            = PKWT_Snippets::instance()->get_recent_backups();
 		$this->shell_open(
 			self::SNAP_SLUG,
 			__( 'Mes snippets', 'pk-wordpress-tools' ),
@@ -399,98 +482,246 @@ class PKWT_Admin {
 		<div class="pkwt-toolbar pkwt-toolbar--snippets">
 			<div class="pkwt-toolbar__group">
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=pkwt-edit' ) ); ?>" class="button button-primary"><?php esc_html_e( 'Ajouter un snippet', 'pk-wordpress-tools' ); ?></a>
+				<form method="post" class="pkwt-backup-create-form">
+					<?php wp_nonce_field( 'pkwt-create-backup' ); ?>
+					<input type="hidden" name="pkwt_backup_action" value="create" />
+					<label class="screen-reader-text" for="pkwt-backup-label"><?php esc_html_e( 'Libellé de la sauvegarde', 'pk-wordpress-tools' ); ?></label>
+					<input type="text" id="pkwt-backup-label" name="pkwt_backup_label" maxlength="191" placeholder="<?php esc_attr_e( 'Libellé facultatif', 'pk-wordpress-tools' ); ?>" />
+					<button type="submit" class="button"><?php esc_html_e( 'Sauvegarder sur le serveur', 'pk-wordpress-tools' ); ?></button>
+				</form>
+				<a href="<?php echo esc_url( $backup_url ); ?>" class="button"><?php esc_html_e( 'Télécharger JSON', 'pk-wordpress-tools' ); ?></a>
 			</div>
-			<p class="pkwt-toolbar__note"><strong><?php echo esc_html( (string) count( $snippets ) ); ?></strong> <?php esc_html_e( 'snippet(s) enregistré(s)', 'pk-wordpress-tools' ); ?> · <a href="<?php echo esc_url( admin_url( 'admin.php?page=pkwt-lab' ) ); ?>"><?php esc_html_e( 'Ajouter depuis la bibliothèque', 'pk-wordpress-tools' ); ?></a></p>
+			<p class="pkwt-toolbar__note"><strong><?php echo esc_html( (string) $counts['all'] ); ?></strong> <?php esc_html_e( 'snippet(s) enregistré(s)', 'pk-wordpress-tools' ); ?> · <a href="<?php echo esc_url( admin_url( 'admin.php?page=pkwt-lab' ) ); ?>"><?php esc_html_e( 'Ajouter depuis la bibliothèque', 'pk-wordpress-tools' ); ?></a></p>
+		</div>
+		<nav class="pkwt-snippet-tabs" aria-label="<?php esc_attr_e( 'Filtres des snippets', 'pk-wordpress-tools' ); ?>">
+			<?php foreach ( [ 'all' => __( 'Tous', 'pk-wordpress-tools' ), 'active' => __( 'Actifs', 'pk-wordpress-tools' ), 'inactive' => __( 'Inactifs', 'pk-wordpress-tools' ), 'trash' => __( 'Corbeille', 'pk-wordpress-tools' ), 'revisions' => __( 'Révisions', 'pk-wordpress-tools' ) ] as $tab => $label ) : ?>
+				<a class="<?php echo $status === $tab ? 'is-current' : ''; ?>" href="<?php echo esc_url( add_query_arg( 'snippet_status', $tab, admin_url( 'admin.php?page=pkwt-snippets' ) ) ); ?>"><?php echo esc_html( $label ); ?> <span><?php echo esc_html( (string) $counts[ $tab ] ); ?></span></a>
+			<?php endforeach; ?>
+		</nav>
+
+		<div class="pkwt-panel pkwt-snippet-backups">
+			<h2 class="pkwt-panel__title"><?php esc_html_e( 'Sauvegardes serveur', 'pk-wordpress-tools' ); ?></h2>
+			<?php if ( empty( $backups ) ) : ?>
+				<p class="pkwt-panel__copy"><?php esc_html_e( 'Aucune sauvegarde serveur pour le moment.', 'pk-wordpress-tools' ); ?></p>
+			<?php else : ?>
+				<table class="widefat striped">
+					<thead>
+						<tr>
+							<th><?php esc_html_e( 'Date', 'pk-wordpress-tools' ); ?></th>
+							<th><?php esc_html_e( 'Libellé', 'pk-wordpress-tools' ); ?></th>
+							<th><?php esc_html_e( 'Snippets', 'pk-wordpress-tools' ); ?></th>
+							<th><?php esc_html_e( 'Actions', 'pk-wordpress-tools' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $backups as $backup ) : ?>
+							<tr>
+								<td><?php echo esc_html( mysql2date( 'Y-m-d H:i', $backup->created_at ) ); ?></td>
+								<td><?php echo esc_html( $backup->label ?: __( 'Sans libellé', 'pk-wordpress-tools' ) ); ?></td>
+								<td><?php echo esc_html( (string) absint( $backup->snippet_count ) ); ?></td>
+								<td>
+									<form method="post" class="pkwt-backup-action-form">
+										<?php wp_nonce_field( 'pkwt-restore-backup-' . (int) $backup->id ); ?>
+										<input type="hidden" name="pkwt_backup_action" value="restore" />
+										<input type="hidden" name="pkwt_backup_id" value="<?php echo esc_attr( (string) absint( $backup->id ) ); ?>" />
+										<label><input type="checkbox" name="pkwt_backup_confirm" value="1" /> <?php esc_html_e( 'Je confirme le remplacement', 'pk-wordpress-tools' ); ?></label>
+										<button type="submit" class="button button-small"><?php esc_html_e( 'Restaurer', 'pk-wordpress-tools' ); ?></button>
+									</form>
+									<form method="post" class="pkwt-backup-action-form">
+										<?php wp_nonce_field( 'pkwt-delete-backup-' . (int) $backup->id ); ?>
+										<input type="hidden" name="pkwt_backup_action" value="delete" />
+										<input type="hidden" name="pkwt_backup_id" value="<?php echo esc_attr( (string) absint( $backup->id ) ); ?>" />
+										<button type="submit" class="button button-small"><?php esc_html_e( 'Supprimer', 'pk-wordpress-tools' ); ?></button>
+									</form>
+								</td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
 		</div>
 
-		<div class="pkwt-table-shell">
-			<table class="wp-list-table widefat striped pkwt-table">
-				<thead>
-					<tr>
-						<th class="pkwt-col-act"><?php esc_html_e( 'Actif', 'pk-wordpress-tools' ); ?></th>
-						<th><?php esc_html_e( 'Nom', 'pk-wordpress-tools' ); ?></th>
-						<th><?php esc_html_e( 'Description', 'pk-wordpress-tools' ); ?></th>
-						<th class="pkwt-col-date"><?php esc_html_e( 'Modifié', 'pk-wordpress-tools' ); ?></th>
-						<th class="pkwt-col-actions"><?php esc_html_e( 'Actions', 'pk-wordpress-tools' ); ?></th>
-					</tr>
-				</thead>
-				<tbody>
-				<?php if ( empty( $snippets ) ) : ?>
-					<tr><td colspan="5" class="pkwt-empty"><?php esc_html_e( 'Aucun snippet pour l\'instant. Créez-en un ou installez un preset depuis le Lab.', 'pk-wordpress-tools' ); ?></td></tr>
-				<?php else : foreach ( $snippets as $s ) :
-					$edit_url   = wp_nonce_url( admin_url( 'admin.php?page=pkwt-edit&id=' . $s->id ), 'pkwt-edit_' . $s->id );
-					$toggle_url = wp_nonce_url( admin_url( 'admin.php?page=pkwt-snippets&action=toggle&id=' . $s->id ), 'pkwt-toggle_' . $s->id );
-					$dup_url    = wp_nonce_url( admin_url( 'admin.php?page=pkwt-snippets&action=duplicate&id=' . $s->id ), 'pkwt-duplicate_' . $s->id );
-					$del_url    = wp_nonce_url( admin_url( 'admin.php?page=pkwt-snippets&action=delete&id=' . $s->id ), 'pkwt-delete_' . $s->id );
-				?>
-					<tr data-id="<?php echo absint( $s->id ); ?>">
-						<td class="pkwt-col-act">
-							<a href="<?php echo esc_url( $toggle_url ); ?>" class="pkwt-status-badge <?php echo $s->active ? 'is-active' : 'is-off'; ?>">
-								<?php if ( $s->active ) : ?>
-									<span class="dashicons dashicons-yes-alt"></span>
-								<?php else : ?>
-									<span class="dashicons dashicons-minus"></span>
-								<?php endif; ?>
-							</a>
-						</td>
-						<td>
-							<a href="<?php echo esc_url( $edit_url ); ?>" class="pkwt-row-title"><?php echo esc_html( $s->name ); ?></a>
-						</td>
-						<td class="pkwt-desc"><?php echo esc_html( $s->description ? $s->description : '—' ); ?></td>
-						<td class="pkwt-col-date"><?php echo esc_html( mysql2date( 'Y-m-d H:i', $s->modified_at ?? '0000-00-00 00:00:00' ) ); ?></td>
-						<td class="pkwt-col-actions">
-							<div class="pkwt-row-actions">
-								<a href="<?php echo esc_url( $edit_url ); ?>" class="button button-small"><?php esc_html_e( 'Modifier', 'pk-wordpress-tools' ); ?></a>
-								<a href="<?php echo esc_url( $dup_url ); ?>" class="button button-small"><?php esc_html_e( 'Dupliquer', 'pk-wordpress-tools' ); ?></a>
-								<a href="<?php echo esc_url( $del_url ); ?>" class="button button-small pkwt-delete"><?php esc_html_e( 'Supprimer', 'pk-wordpress-tools' ); ?></a>
-							</div>
-						</td>
-					</tr>
-				<?php endforeach; endif; ?>
-				</tbody>
-			</table>
+		<?php if ( 'trash' !== $status && ! empty( $personal_snippets ) ) : ?>
+		<div class="pkwt-snippets-section">
+			<h2 class="pkwt-lab-cat"><?php esc_html_e( 'Bibliothèque personnelle', 'pk-wordpress-tools' ); ?></h2>
+			<?php $this->render_snippet_cards( $personal_snippets, true ); ?>
+		</div>
+		<?php endif; ?>
+
+		<div class="pkwt-snippets-section">
+			<h2 class="pkwt-lab-cat"><?php echo esc_html( 'trash' === $status ? __( 'Corbeille', 'pk-wordpress-tools' ) : __( 'Mes snippets', 'pk-wordpress-tools' ) ); ?></h2>
+			<?php if ( empty( $regular_snippets ) ) : ?>
+				<p class="pkwt-empty"><?php esc_html_e( 'Aucun snippet pour l\'instant. Créez-en un ou installez un preset depuis le Lab.', 'pk-wordpress-tools' ); ?></p>
+			<?php else : ?>
+				<?php $this->render_snippet_cards( $regular_snippets, false ); ?>
+			<?php endif; ?>
 		</div>
 		<?php
 		$this->shell_close();
 	}
 
 	/**
-	 * Handle list-page actions (delete/toggle/duplicate).
+	 * Render a compact collection of custom snippet cards.
+	 *
+	 * @param array $snippets Snippet rows.
+	 * @param bool  $personal Whether cards belong to the personal library.
+	 */
+	private function render_snippet_cards( array $snippets, bool $personal ): void {
+		?>
+		<div class="pkwt-lab-list pkwt-snippet-list">
+		<?php foreach ( $snippets as $snippet ) :
+			$id          = (int) $snippet->id;
+			$edit_url    = wp_nonce_url( admin_url( 'admin.php?page=pkwt-edit&id=' . $id ), 'pkwt-edit_' . $id );
+			$is_trashed  = ! empty( $snippet->deleted_at );
+			?>
+			<div class="pkwt-lab-item pkwt-snippet-item <?php echo $personal ? 'pkwt-personal-snippet-item ' : ''; ?><?php echo $snippet->active ? 'is-on' : ''; ?>" data-id="<?php echo absint( $id ); ?>">
+				<div class="pkwt-lab-item__main">
+					<div class="pkwt-lab-item__info">
+						<?php if ( $is_trashed ) : ?><strong class="pkwt-lab-item__name"><?php echo esc_html( $snippet->name ); ?></strong><?php else : ?><a href="<?php echo esc_url( $edit_url ); ?>" class="pkwt-lab-item__name"><?php echo esc_html( $snippet->name ); ?></a><?php endif; ?>
+						<span class="pkwt-lab-item__desc"><?php echo esc_html( $snippet->description ?: __( 'Aucune description.', 'pk-wordpress-tools' ) ); ?></span>
+					</div>
+					<?php if ( ! $is_trashed ) : ?><label class="pkwt-switch">
+						<input type="checkbox" class="pkwt-snippet-toggle" data-id="<?php echo absint( $id ); ?>" <?php checked( (bool) $snippet->active ); ?> aria-label="<?php echo esc_attr( $snippet->active ? __( 'Désactiver ce snippet', 'pk-wordpress-tools' ) : __( 'Activer ce snippet', 'pk-wordpress-tools' ) ); ?>" />
+						<span class="pkwt-switch__slider"></span>
+					</label><?php endif; ?>
+				</div>
+				<div class="pkwt-lab-item__actions">
+					<button type="button" class="pkwt-lab-code-toggle"><?php esc_html_e( 'Voir le code', 'pk-wordpress-tools' ); ?></button>
+					<button type="button" class="button button-small pkwt-copy-btn" data-code="<?php echo esc_attr( $snippet->code ); ?>"><?php esc_html_e( 'Copier', 'pk-wordpress-tools' ); ?></button>
+					<?php if ( ! $is_trashed ) : ?>
+						<a href="<?php echo esc_url( $edit_url ); ?>" class="button button-small"><?php esc_html_e( 'Nouvelle version', 'pk-wordpress-tools' ); ?></a>
+						<form method="post" class="pkwt-inline-form">
+							<?php wp_nonce_field( 'pkwt-library-' . $id ); ?>
+							<input type="hidden" name="pkwt_snippet_action" value="<?php echo esc_attr( $personal ? 'remove-library' : 'add-library' ); ?>" /><input type="hidden" name="pkwt_snippet_id" value="<?php echo absint( $id ); ?>" />
+							<button type="submit" class="button button-small"><?php echo esc_html( $personal ? __( 'Retirer de la bibliothèque', 'pk-wordpress-tools' ) : __( 'Ajouter à la bibliothèque', 'pk-wordpress-tools' ) ); ?></button>
+						</form>
+						<form method="post" class="pkwt-inline-form">
+							<?php wp_nonce_field( 'pkwt-trash-' . $id ); ?>
+							<input type="hidden" name="pkwt_snippet_action" value="trash" /><input type="hidden" name="pkwt_snippet_id" value="<?php echo absint( $id ); ?>" />
+							<button type="submit" class="button button-small"><?php esc_html_e( 'Supprimer', 'pk-wordpress-tools' ); ?></button>
+						</form>
+					<?php else : ?>
+						<form method="post" class="pkwt-inline-form">
+							<?php wp_nonce_field( 'pkwt-restore-' . $id ); ?>
+							<input type="hidden" name="pkwt_snippet_action" value="restore" /><input type="hidden" name="pkwt_snippet_id" value="<?php echo absint( $id ); ?>" />
+							<button type="submit" class="button button-small"><?php esc_html_e( 'Restaurer', 'pk-wordpress-tools' ); ?></button>
+						</form>
+						<form method="post" class="pkwt-inline-form pkwt-permanent-delete-form">
+							<?php wp_nonce_field( 'pkwt-permanent-delete-' . $id ); ?>
+							<input type="hidden" name="pkwt_snippet_action" value="permanent-delete" /><input type="hidden" name="pkwt_snippet_id" value="<?php echo absint( $id ); ?>" />
+							<label><input type="checkbox" name="pkwt_confirm_permanent_delete" value="1" required /> <?php esc_html_e( 'Confirmer', 'pk-wordpress-tools' ); ?></label>
+							<button type="submit" class="button button-small pkwt-delete"><?php esc_html_e( 'Supprimer définitivement', 'pk-wordpress-tools' ); ?></button>
+						</form>
+					<?php endif; ?>
+					<span class="pkwt-snippet-item__date"><?php echo esc_html( mysql2date( 'Y-m-d H:i', $snippet->modified_at ?? '0000-00-00 00:00:00' ) ); ?></span>
+				</div>
+				<pre class="pkwt-lab-item__code"><code><?php echo esc_html( $snippet->code ); ?></code></pre>
+			</div>
+		<?php endforeach; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Handle list-page actions with PRG redirects.
 	 */
 	private function dispatch_snippet_actions(): void {
-		if ( ! isset( $_GET['action'], $_GET['id'], $_GET['_wpnonce'] ) ) {
+		if ( ! isset( $_POST['pkwt_snippet_action'], $_POST['pkwt_snippet_id'] ) ) {
 			return;
 		}
-		$id     = absint( $_GET['id'] );
-		$action = sanitize_text_field( wp_unslash( $_GET['action'] ) );
-		$nonce  = sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) );
+		$id     = absint( $_POST['pkwt_snippet_id'] );
+		$action = sanitize_key( wp_unslash( $_POST['pkwt_snippet_action'] ) );
+		$nonce  = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
 		$s      = PKWT_Snippets::instance();
+		if ( ! in_array( $action, [ 'trash', 'restore', 'permanent-delete', 'add-library', 'remove-library' ], true ) ) {
+			wp_die( esc_html__( 'Action inconnue.', 'pk-wordpress-tools' ) );
+		}
+
+		$nonce_action = in_array( $action, [ 'add-library', 'remove-library' ], true ) ? 'pkwt-library-' . $id : 'pkwt-' . $action . '-' . $id;
+		if ( ! wp_verify_nonce( $nonce, $nonce_action ) ) {
+			wp_die( esc_html__( 'Vérification de sécurité échouée.', 'pk-wordpress-tools' ) );
+		}
 
 		switch ( $action ) {
-			case 'delete':
-				if ( wp_verify_nonce( $nonce, 'pkwt-delete_' . $id ) ) {
-					$s->delete_snippet( $id );
-					$this->add_notice( 'success', __( 'Snippet supprimé.', 'pk-wordpress-tools' ) );
+			case 'trash':
+				if ( $s->trash_snippet( $id ) ) {
+					$this->add_notice( 'success', __( 'Snippet déplacé dans la corbeille.', 'pk-wordpress-tools' ) );
 				}
 				break;
-			case 'toggle':
-				if ( wp_verify_nonce( $nonce, 'pkwt-toggle_' . $id ) ) {
-					$cur = $s->get_snippet( $id );
-					if ( $cur ) {
-						$s->toggle_snippet( $id, ! (bool) $cur->active );
-						$this->add_notice( 'success', $cur->active ? __( 'Snippet désactivé.', 'pk-wordpress-tools' ) : __( 'Snippet activé.', 'pk-wordpress-tools' ) );
-					}
+			case 'restore':
+				if ( $s->restore_snippet( $id ) ) {
+					$this->add_notice( 'success', __( 'Snippet restauré dans les snippets inactifs.', 'pk-wordpress-tools' ) );
 				}
 				break;
-			case 'duplicate':
-				if ( wp_verify_nonce( $nonce, 'pkwt-duplicate_' . $id ) ) {
-					$new = $s->duplicate_snippet( $id );
-					if ( $new > 0 ) {
-						$this->add_notice( 'success', sprintf( __( 'Snippet dupliqué. <a href="%s">Modifier →</a>', 'pk-wordpress-tools' ), esc_url( wp_nonce_url( admin_url( 'admin.php?page=pkwt-edit&id=' . $new ), 'pkwt-edit_' . $new ) ) ) );
-					}
+			case 'permanent-delete':
+				if ( empty( $_POST['pkwt_confirm_permanent_delete'] ) ) {
+					$this->add_notice( 'error', __( 'Confirmez la suppression définitive.', 'pk-wordpress-tools' ) );
+				} elseif ( $s->permanently_delete_snippet( $id ) ) {
+					$this->update_personal_library_ids( array_diff( $this->personal_library_ids(), [ $id ] ) );
+					$this->add_notice( 'success', __( 'Snippet et révisions supprimés définitivement.', 'pk-wordpress-tools' ) );
 				}
+				break;
+			case 'add-library':
+				if ( $s->get_snippet( $id ) ) {
+					$this->update_personal_library_ids( [ ...$this->personal_library_ids(), $id ] );
+					$this->add_notice( 'success', __( 'Snippet ajouté à la bibliothèque personnelle.', 'pk-wordpress-tools' ) );
+				}
+				break;
+			case 'remove-library':
+				$this->update_personal_library_ids( array_diff( $this->personal_library_ids(), [ $id ] ) );
+				$this->add_notice( 'success', __( 'Snippet retiré de la bibliothèque personnelle.', 'pk-wordpress-tools' ) );
 				break;
 		}
+
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SNAP_SLUG ) );
+		exit;
+	}
+
+	/**
+	 * Handle server-backup actions with nonces and PRG redirects.
+	 */
+	private function dispatch_backup_actions(): void {
+		if ( ! isset( $_POST['pkwt_backup_action'] ) ) {
+			return;
+		}
+		if ( ! current_user_can( 'manage_options' ) ) {
+			wp_die( esc_html__( 'Vous n\'avez pas la permission.', 'pk-wordpress-tools' ) );
+		}
+
+		$action = sanitize_text_field( wp_unslash( $_POST['pkwt_backup_action'] ) );
+		$backup_id = isset( $_POST['pkwt_backup_id'] ) ? absint( $_POST['pkwt_backup_id'] ) : 0;
+		$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
+		$snippets = PKWT_Snippets::instance();
+
+		if ( 'create' === $action ) {
+			if ( ! wp_verify_nonce( $nonce, 'pkwt-create-backup' ) ) {
+				wp_die( esc_html__( 'Vérification de sécurité échouée.', 'pk-wordpress-tools' ) );
+			}
+			$label = isset( $_POST['pkwt_backup_label'] ) ? sanitize_text_field( wp_unslash( $_POST['pkwt_backup_label'] ) ) : '';
+			$backup_id = $snippets->create_backup( $label, get_current_user_id(), $this->personal_library_ids() );
+			$this->add_notice( $backup_id > 0 ? 'success' : 'error', $backup_id > 0 ? __( 'Sauvegarde créée sur le serveur.', 'pk-wordpress-tools' ) : __( 'La sauvegarde serveur n\'a pas pu être créée.', 'pk-wordpress-tools' ) );
+		} elseif ( 'restore' === $action ) {
+			if ( $backup_id < 1 || ! wp_verify_nonce( $nonce, 'pkwt-restore-backup-' . $backup_id ) ) {
+				wp_die( esc_html__( 'Vérification de sécurité échouée.', 'pk-wordpress-tools' ) );
+			}
+			if ( empty( $_POST['pkwt_backup_confirm'] ) ) {
+				$this->add_notice( 'error', __( 'Cochez la confirmation avant de restaurer une sauvegarde.', 'pk-wordpress-tools' ) );
+			} else {
+				$count = $snippets->restore_backup( $backup_id );
+				$this->add_notice( $count >= 0 ? 'success' : 'error', $count >= 0 ? sprintf( _n( '%d snippet restauré.', '%d snippets restaurés.', $count, 'pk-wordpress-tools' ), $count ) : __( 'La sauvegarde est invalide ou la restauration a échoué.', 'pk-wordpress-tools' ) );
+			}
+		} elseif ( 'delete' === $action ) {
+			if ( $backup_id < 1 || ! wp_verify_nonce( $nonce, 'pkwt-delete-backup-' . $backup_id ) ) {
+				wp_die( esc_html__( 'Vérification de sécurité échouée.', 'pk-wordpress-tools' ) );
+			}
+			$deleted = $snippets->delete_backup( $backup_id );
+			$this->add_notice( $deleted ? 'success' : 'error', $deleted ? __( 'Sauvegarde serveur supprimée.', 'pk-wordpress-tools' ) : __( 'La sauvegarde serveur n\'a pas pu être supprimée.', 'pk-wordpress-tools' ) );
+		} else {
+			return;
+		}
+
+		wp_safe_redirect( admin_url( 'admin.php?page=' . self::SNAP_SLUG ) );
+		exit;
 	}
 
 	/* ---------------------------------------------------------------------
@@ -506,6 +737,8 @@ class PKWT_Admin {
 		}
 
 		$id      = isset( $_GET['id'] ) ? absint( $_GET['id'] ) : 0;
+		$this->dispatch_revision_restore( $id );
+		$this->dispatch_snippet_save( $id );
 		$snippet = null;
 		if ( $id > 0 ) {
 			$nonce = isset( $_GET['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ) : '';
@@ -515,12 +748,11 @@ class PKWT_Admin {
 			$snippet = PKWT_Snippets::instance()->get_snippet( $id );
 		}
 
-		$this->dispatch_snippet_save( $id );
-
 		$name        = $snippet->name        ?? '';
 		$description = $snippet->description ?? '';
 		$code        = $snippet->code        ?? '';
 		$active      = $snippet->active      ?? 0;
+		$revisions   = $id > 0 ? PKWT_Snippets::instance()->get_revisions( $id ) : [];
 
 		$this->shell_open(
 			'pkwt-edit',
@@ -528,11 +760,12 @@ class PKWT_Admin {
 		);
 		$this->notices();
 		?>
-		<form method="post" class="pkwt-panel pkwt-form">
+		<div class="pkwt-panel pkwt-form">
+		<div class="pkwt-edit-layout">
+		<form method="post" id="pkwt-snippet-edit-form" class="pkwt-edit-grid">
 			<?php wp_nonce_field( 'pkwt-save_' . $id ); ?>
 			<input type="hidden" name="pkwt[id]" value="<?php echo esc_attr( $id ); ?>" />
 
-			<div class="pkwt-edit-grid">
 				<div class="pkwt-field pkwt-field--span-2">
 					<label for="pkwt-name"><?php esc_html_e( 'Nom', 'pk-wordpress-tools' ); ?></label>
 					<input type="text" id="pkwt-name" name="pkwt[name]" value="<?php echo esc_attr( $name ); ?>" class="regular-text" required />
@@ -546,19 +779,36 @@ class PKWT_Admin {
 					<textarea id="pkwt-code" name="pkwt[code]" rows="22" class="code"><?php echo esc_textarea( $code ); ?></textarea>
 					<p class="description"><?php esc_html_e( 'Code PHP pur, sans balise <?php d\'ouverture. Exécuté globalement (front + admin).', 'pk-wordpress-tools' ); ?></p>
 				</div>
-				<div class="pkwt-field pkwt-edit-toggle">
-					<label>
-						<input type="checkbox" name="pkwt[active]" value="1" <?php checked( $active, 1 ); ?> />
-						<span><?php esc_html_e( 'Activer ce snippet', 'pk-wordpress-tools' ); ?></span>
-					</label>
-				</div>
+		</form>
+			<?php if ( $id > 0 ) : ?>
+				<aside class="pkwt-revisions-panel" aria-labelledby="pkwt-revisions-title">
+					<h2 id="pkwt-revisions-title"><?php esc_html_e( 'Historique des versions', 'pk-wordpress-tools' ); ?></h2>
+					<p><?php esc_html_e( 'Chaque enregistrement conserve l’état précédent. La restauration crée une nouvelle version.', 'pk-wordpress-tools' ); ?></p>
+					<?php if ( empty( $revisions ) ) : ?>
+						<p class="pkwt-muted"><?php esc_html_e( 'Aucune version antérieure.', 'pk-wordpress-tools' ); ?></p>
+					<?php else : foreach ( $revisions as $revision ) : ?>
+						<div class="pkwt-revision">
+							<strong><?php echo esc_html( sprintf( __( 'Version %d', 'pk-wordpress-tools' ), $revision->version_number ) ); ?></strong>
+							<span><?php echo esc_html( mysql2date( 'Y-m-d H:i', $revision->created_at ) ); ?></span>
+							<form method="post">
+								<?php wp_nonce_field( 'pkwt-restore-revision-' . $id . '-' . (int) $revision->id ); ?>
+								<input type="hidden" name="pkwt_restore_revision" value="<?php echo absint( $revision->id ); ?>" />
+								<label><input type="checkbox" name="pkwt_confirm_restore_revision" value="1" required /> <?php esc_html_e( 'Je confirme la restauration', 'pk-wordpress-tools' ); ?></label>
+								<button type="submit" class="button button-small"><?php esc_html_e( 'Restaurer', 'pk-wordpress-tools' ); ?></button>
+							</form>
+						</div>
+					<?php endforeach; endif; ?>
+				</aside>
+			<?php endif; ?>
 			</div>
 
-			<p class="submit">
-				<button type="submit" class="button button-primary pkwt-btn-primary"><?php esc_html_e( 'Enregistrer', 'pk-wordpress-tools' ); ?></button>
+			<div class="pkwt-edit-action-bar">
+				<span><?php echo esc_html( $id > 0 ? __( 'Une version antérieure sera conservée.', 'pk-wordpress-tools' ) : __( 'Le snippet sera créé inactif sauf activation.', 'pk-wordpress-tools' ) ); ?></span>
+				<label class="pkwt-edit-action-bar__toggle"><input type="checkbox" form="pkwt-snippet-edit-form" name="pkwt[active]" value="1" <?php checked( $active, 1 ); ?> /> <?php esc_html_e( 'Activer ce snippet', 'pk-wordpress-tools' ); ?></label>
+				<button type="submit" form="pkwt-snippet-edit-form" class="button button-primary pkwt-btn-primary"><?php echo esc_html( $id > 0 ? __( 'Enregistrer la nouvelle version', 'pk-wordpress-tools' ) : __( 'Enregistrer', 'pk-wordpress-tools' ) ); ?></button>
 				<a href="<?php echo esc_url( admin_url( 'admin.php?page=pkwt-snippets' ) ); ?>" class="button"><?php esc_html_e( 'Annuler', 'pk-wordpress-tools' ); ?></a>
-			</p>
-		</form>
+			</div>
+		</div>
 		<?php
 		$this->shell_close();
 	}
@@ -579,10 +829,32 @@ class PKWT_Admin {
 		if ( $saved_id > 0 ) {
 			$this->add_notice( 'success', __( 'Snippet enregistré.', 'pk-wordpress-tools' ) );
 			$url = wp_nonce_url( admin_url( 'admin.php?page=pkwt-edit&id=' . $saved_id ), 'pkwt-edit_' . $saved_id );
-			echo '<script>window.location.href="' . esc_url( $url ) . '";</script>';
+			wp_safe_redirect( $url );
 			exit;
 		}
 		$this->add_notice( 'error', __( 'Erreur lors de l\'enregistrement.', 'pk-wordpress-tools' ) );
+	}
+
+	/** Restore a revision only after explicit confirmation. */
+	private function dispatch_revision_restore( int $snippet_id ): void {
+		if ( $snippet_id < 1 || ! isset( $_POST['pkwt_restore_revision'] ) ) {
+			return;
+		}
+		$revision_id = absint( $_POST['pkwt_restore_revision'] );
+		$nonce = isset( $_POST['_wpnonce'] ) ? sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ) : '';
+		if ( ! wp_verify_nonce( $nonce, 'pkwt-restore-revision-' . $snippet_id . '-' . $revision_id ) ) {
+			wp_die( esc_html__( 'Vérification de sécurité échouée.', 'pk-wordpress-tools' ) );
+		}
+		if ( empty( $_POST['pkwt_confirm_restore_revision'] ) ) {
+			$this->add_notice( 'error', __( 'Confirmez la restauration de cette version.', 'pk-wordpress-tools' ) );
+			return;
+		}
+		$restored = PKWT_Snippets::instance()->restore_revision( $snippet_id, $revision_id, get_current_user_id() );
+		$this->add_notice( $restored ? 'success' : 'error', $restored ? __( 'Version restaurée.', 'pk-wordpress-tools' ) : __( 'La version n’a pas pu être restaurée.', 'pk-wordpress-tools' ) );
+		if ( $restored ) {
+			wp_safe_redirect( wp_nonce_url( admin_url( 'admin.php?page=pkwt-edit&id=' . $snippet_id ), 'pkwt-edit_' . $snippet_id ) );
+			exit;
+		}
 	}
 
 	/* ---------------------------------------------------------------------
@@ -624,7 +896,14 @@ class PKWT_Admin {
 		foreach ( $presets as $p ) {
 			$by_cat[ $p['category'] ][] = $p;
 		}
+		$native_by_cat = [];
+		foreach ( PKWT_Native_Features::definitions() as $feature_id => $feature ) {
+			$native_by_cat[ $feature['category'] ][ $feature_id ] = $feature;
+		}
 		$active_count = count( PKWT_Lab::get_active() );
+		foreach ( array_keys( PKWT_Native_Features::definitions() ) as $feature_id ) {
+			$active_count += PKWT_Native_Features::is_enabled( $feature_id ) ? 1 : 0;
+		}
 
 		$this->shell_open(
 			self::LAB_SLUG,
@@ -637,8 +916,33 @@ class PKWT_Admin {
 		$this->notices();
 		?>
 
+		<p class="pkwt-native-features-note"><?php esc_html_e( 'Outils installés dans le plugin. Activez uniquement ceux dont vous avez besoin.', 'pk-wordpress-tools' ); ?></p>
+		<?php foreach ( $native_by_cat as $category => $features ) : ?>
 		<div class="pkwt-lab-section">
-			<h2 class="pkwt-lab-cat"><?php esc_html_e( 'Intégré', 'pk-wordpress-tools' ); ?></h2>
+			<h2 class="pkwt-lab-cat"><?php echo esc_html( $category ); ?></h2>
+			<div class="pkwt-lab-list">
+				<?php foreach ( $features as $feature_id => $feature ) :
+					$is_enabled = PKWT_Native_Features::is_enabled( $feature_id );
+					?>
+					<div class="pkwt-lab-item pkwt-native-feature-item <?php echo $is_enabled ? 'is-on' : ''; ?>" data-name="<?php echo esc_attr( strtolower( $feature['name'] . ' ' . $feature['description'] ) ); ?>">
+						<div class="pkwt-lab-item__main">
+							<div class="pkwt-lab-item__info">
+								<strong class="pkwt-lab-item__name"><?php echo esc_html( $feature['name'] ); ?></strong>
+								<span class="pkwt-lab-item__desc"><?php echo esc_html( $feature['description'] ); ?></span>
+							</div>
+							<label class="pkwt-switch">
+								<input type="checkbox" class="pkwt-native-feature-toggle" data-feature="<?php echo esc_attr( $feature_id ); ?>" <?php checked( $is_enabled ); ?> aria-label="<?php echo esc_attr( sprintf( __( 'Activer ou désactiver %s', 'pk-wordpress-tools' ), $feature['name'] ) ); ?>" />
+								<span class="pkwt-switch__slider"></span>
+							</label>
+						</div>
+					</div>
+				<?php endforeach; ?>
+			</div>
+		</div>
+		<?php endforeach; ?>
+
+		<div class="pkwt-lab-section">
+			<h2 class="pkwt-lab-cat"><?php esc_html_e( 'Extensions', 'pk-wordpress-tools' ); ?></h2>
 			<div class="pkwt-lab-list">
 				<div class="pkwt-lab-item <?php echo PKWT_Notes::is_enabled() ? 'is-on' : ''; ?>" data-name="notes icones extensions">
 					<div class="pkwt-lab-item__main">
@@ -708,18 +1012,7 @@ class PKWT_Admin {
 			wp_die( esc_html__( 'Vous n\'avez pas la permission.', 'pk-wordpress-tools' ) );
 		}
 
-		// Export download.
-		if ( isset( $_GET['action'] ) && 'export' === $_GET['action'] ) {
-			if ( isset( $_GET['_wpnonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_GET['_wpnonce'] ) ), 'pkwt-export' ) ) {
-				$json = PKWT_Snippets::instance()->export_json();
-				nocache_headers();
-				header( 'Content-Type: application/json; charset=utf-8' );
-				header( 'Content-Disposition: attachment; filename="pkwt-snippets-' . gmdate( 'Y-m-d' ) . '.json"' );
-				header( 'Content-Length: ' . strlen( $json ) );
-				echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-				exit;
-			}
-		}
+		$this->maybe_download_snippets_export();
 
 		// Import upload.
 		if ( isset( $_POST['pkwt_import'] ) && isset( $_POST['_wpnonce'] ) && wp_verify_nonce( sanitize_text_field( wp_unslash( $_POST['_wpnonce'] ) ), 'pkwt-import' ) ) {

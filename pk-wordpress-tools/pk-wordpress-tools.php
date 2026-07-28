@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       PK WordPress Tools
  * Description:       Boîte à outils WP : calendrier éditorial, outils de contenus, lecteur d'articles, Lab, extensions et export.
- * Version:           1.2026.7
+ * Version:           1.2026.16
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            PK
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PKWT_VERSION', '1.2026.7' );
+define( 'PKWT_VERSION', '1.2026.16' );
 define( 'PKWT_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PKWT_URL', plugin_dir_url( __FILE__ ) );
 define( 'PKWT_FILE', __FILE__ );
@@ -28,6 +28,7 @@ if ( function_exists( 'opcache_invalidate' ) && get_option( 'pkwt_opcache_versio
 }
 
 require_once PKWT_DIR . 'includes/class-pkwt-snippets.php';
+require_once PKWT_DIR . 'includes/class-pkwt-native-features.php';
 require_once PKWT_DIR . 'includes/class-pkwt-lab.php';
 require_once PKWT_DIR . 'includes/class-pkwt-notes.php';
 require_once PKWT_DIR . 'includes/class-pkwt-calendar.php';
@@ -40,6 +41,7 @@ register_activation_hook( __FILE__, [ 'PKWT_Snippets', 'activate' ] );
 register_activation_hook( __FILE__, [ 'PKWT_Notes', 'activate' ] );
 
 add_action( 'plugins_loaded', function (): void {
+	PKWT_Snippets::maybe_upgrade_schema();
 	// Disable the broken scheduled-posts snippet once, wherever it was saved.
 	if ( ! get_option( 'pkwt_disabled_missed_scheduled_posts_snippet' ) ) {
 		global $wpdb;

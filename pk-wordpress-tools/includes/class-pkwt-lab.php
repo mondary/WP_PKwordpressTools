@@ -43,7 +43,8 @@ class PKWT_Lab {
 		$presets = $this->get_presets();
 
 		foreach ( $active as $slug ) {
-			if ( ! isset( $presets[ $slug ] ) ) {
+			// Native feature IDs are managed through their registry, never evaluated.
+			if ( isset( PKWT_Native_Features::definitions()[ $slug ] ) || ! isset( $presets[ $slug ] ) ) {
 				continue;
 			}
 

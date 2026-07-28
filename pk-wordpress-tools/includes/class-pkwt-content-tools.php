@@ -21,18 +21,30 @@ class PKWT_Content_Tools {
 
 	/** Wire the content administration hooks. */
 	public function init(): void {
-		add_filter( 'manage_edit-post_columns', [ $this, 'add_featured_image_column' ] );
-		add_action( 'manage_post_posts_custom_column', [ $this, 'render_featured_image_column' ], 10, 2 );
-		add_action( 'restrict_manage_posts', [ $this, 'render_featured_image_filter' ] );
-		add_action( 'pre_get_posts', [ $this, 'filter_posts_by_featured_image' ] );
-		add_filter( 'views_edit-post', [ $this, 'add_markdown_export_view' ] );
-		add_action( 'admin_menu', [ $this, 'register_missing_images_page' ] );
-		add_action( 'admin_post_pkwt_delete_featured_image', [ $this, 'delete_featured_image' ] );
-		add_action( 'admin_post_pkwt_export_markdown', [ $this, 'export_markdown' ] );
-		add_action( 'admin_notices', [ $this, 'render_admin_notice' ] );
-		add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
-		add_action( 'admin_bar_menu', [ $this, 'add_admin_bar_search' ], 100 );
-		add_action( 'pre_current_active_plugins', [ $this, 'sort_active_plugins_first' ] );
+		if ( PKWT_Native_Features::is_enabled( 'featured-image-column' ) ) {
+			add_filter( 'manage_edit-post_columns', [ $this, 'add_featured_image_column' ] );
+			add_action( 'manage_post_posts_custom_column', [ $this, 'render_featured_image_column' ], 10, 2 );
+			add_action( 'admin_post_pkwt_delete_featured_image', [ $this, 'delete_featured_image' ] );
+			add_action( 'admin_notices', [ $this, 'render_admin_notice' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'missing-featured-images' ) ) {
+			add_action( 'restrict_manage_posts', [ $this, 'render_featured_image_filter' ] );
+			add_action( 'pre_get_posts', [ $this, 'filter_posts_by_featured_image' ] );
+			add_action( 'admin_menu', [ $this, 'register_missing_images_page' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'markdown-rag-export' ) ) {
+			add_filter( 'views_edit-post', [ $this, 'add_markdown_export_view' ] );
+			add_action( 'admin_post_pkwt_export_markdown', [ $this, 'export_markdown' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'admin-bar-search' ) ) {
+			add_action( 'admin_bar_menu', [ $this, 'add_admin_bar_search' ], 100 );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'active-plugins-first' ) ) {
+			add_action( 'pre_current_active_plugins', [ $this, 'sort_active_plugins_first' ] );
+		}
+		if ( PKWT_Native_Features::is_enabled( 'missing-featured-images' ) || PKWT_Native_Features::is_enabled( 'featured-image-column' ) || PKWT_Native_Features::is_enabled( 'admin-bar-search' ) ) {
+			add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_assets' ] );
+		}
 	}
 
 	public function add_featured_image_column( array $columns ): array {
@@ -91,7 +103,7 @@ class PKWT_Content_Tools {
 	}
 
 	public function add_markdown_export_view( array $views ): array {
-		if ( ! $this->is_posts_list_screen() || ! current_user_can( 'edit_posts' ) ) {
+		if ( ! $this->is_posts_list_screen() || ! current_user_can( 'manage_options' ) ) {
 			return $views;
 		}
 		ob_start();
@@ -199,7 +211,7 @@ class PKWT_Content_Tools {
 
 	public function export_markdown(): void {
 		check_admin_referer( 'pkwt_export_markdown' );
-		if ( ! current_user_can( 'edit_posts' ) ) {
+		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_die( esc_html__( 'You are not allowed to export posts.', 'pk-wordpress-tools' ), 403 );
 		}
 		if ( ! class_exists( 'ZipArchive' ) ) {
