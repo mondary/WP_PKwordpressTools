@@ -1,0 +1,68 @@
+.column-pkwt_featured_image {
+	width: 110px;
+}
+
+.pkwt-featured-image__thumbnail {
+	display: block;
+	width: 80px;
+	height: 60px;
+	margin-bottom: 5px;
+	object-fit: cover;
+}
+
+.pkwt-featured-image__empty {
+	color: #646970;
+}
+
+.pkwt-featured-image__delete-form,
+.pkwt-markdown-export {
+	display: inline;
+}
+
+.pkwt-featured-image__delete {
+	font-size: 12px;
+}
+
+#wpadminbar .pkwt-admin-bar-search-node > .ab-item {
+	display: block;
+	height: auto;
+	padding: 0 8px;
+}
+
+#wpadminbar .pkwt-admin-bar-search {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 0;
+}
+
+#wpadminbar .pkwt-admin-bar-search input[type="search"] {
+	width: 150px;
+	min-height: 26px;
+	padding: 2px 6px;
+	border: 1px solid #50575e;
+	border-radius: 2px;
+	background: #fff;
+	color: #1d2327;
+}
+
+#wpadminbar .pkwt-admin-bar-search button {
+	min-height: 26px;
+	border: 1px solid #2271b1;
+	border-radius: 2px;
+	background: #2271b1;
+	color: #fff;
+	cursor: pointer;
+}
+
+#wpadminbar .pkwt-admin-bar-search input[type="search"]:focus,
+#wpadminbar .pkwt-admin-bar-search button:focus {
+	outline: 2px solid #72aee6;
+	outline-offset: 1px;
+}
+
+@media screen and (max-width: 782px) {
+	#wpadminbar .pkwt-admin-bar-search input[type="search"] {
+	width: 110px;
+	}
+}
