@@ -880,3 +880,160 @@ body.pkwt-snippets_page_pkwt-edit #wpcontent {
 	.pkwt-toolbar--snippets { align-items: stretch; }
 	.pkwt-edit-action-bar { position: static; margin-top: 16px; }
 }
+
+/* ----------------------------------------------------------------- *
+ * Dashboard theme. The industrial rules above remain the Brutaliste
+ * treatment; this layer is intentionally scoped to plugin shells.
+ * ----------------------------------------------------------------- */
+body.pkwt-admin-theme--dashboard #wpcontent { background: #f1f5f9; }
+.pkwt-admin-shell.pkwt-admin-theme--dashboard {
+	--pkwt-green: #475569;
+	--pkwt-green-dark: #334155;
+	--pkwt-green-soft: #eef2f7;
+	--pkwt-ink: #1e293b;
+	--pkwt-muted: #64748b;
+	--pkwt-line: #dbe3ee;
+	--pkwt-canvas: #f1f5f9;
+	--pkwt-white: #ffffff;
+	--pkwt-radius: 7px;
+	--pkwt-radius-lg: 8px;
+	--pkwt-indigo: #4f46e5;
+	--pkwt-danger: #b91c1c;
+	max-width: 1440px;
+	padding: 22px 0 42px;
+	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.pkwt-admin-theme--dashboard .pkwt-page-stack { gap: 18px; }
+.pkwt-admin-theme--dashboard .pkwt-topbar { padding-bottom: 20px; border-bottom: 1px solid var(--pkwt-line); }
+.pkwt-admin-theme--dashboard .pkwt-eyebrow,
+.pkwt-admin-theme--dashboard .pkwt-field label,
+.pkwt-admin-theme--dashboard .pkwt-lab-cat,
+.pkwt-admin-theme--dashboard .pkwt-mgr-note__label,
+.pkwt-admin-theme--dashboard .pkwt-table thead th {
+	font-family: inherit;
+	letter-spacing: .04em;
+}
+.pkwt-admin-theme--dashboard .pkwt-eyebrow { color: var(--pkwt-muted); font-size: 11px; }
+.pkwt-admin-theme--dashboard .pkwt-version-pill,
+.pkwt-admin-theme--dashboard .pkwt-version-badge {
+	border: 0;
+	border-radius: 999px;
+	background: #e2e8f0;
+	color: #475569;
+	font-family: inherit;
+}
+.pkwt-admin-theme--dashboard .pkwt-admin-title { font-size: clamp(26px, 3vw, 38px); font-weight: 750; letter-spacing: -.035em; line-height: 1.08; }
+.pkwt-admin-theme--dashboard .pkwt-topbar__nav {
+	gap: 2px;
+	margin-top: 18px;
+	padding: 4px;
+	border: 1px solid var(--pkwt-line);
+	border-radius: 8px;
+	background: #fff;
+}
+.pkwt-admin-theme--dashboard .pkwt-topbar__link {
+	min-height: 34px;
+	padding: 0 13px;
+	border: 0;
+	border-radius: 6px;
+	color: var(--pkwt-muted);
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: 650;
+	letter-spacing: 0;
+	text-transform: none;
+}
+.pkwt-admin-theme--dashboard .pkwt-topbar__link:hover,
+.pkwt-admin-theme--dashboard .pkwt-topbar__link:focus-visible { background: #eef2f7; color: var(--pkwt-ink); outline: 2px solid #818cf8; outline-offset: 1px; }
+.pkwt-admin-theme--dashboard .pkwt-topbar__link.is-active { background: #475569; color: #fff; }
+
+.pkwt-admin-theme--dashboard .pkwt-panel,
+.pkwt-admin-theme--dashboard .pkwt-card,
+.pkwt-admin-theme--dashboard .pkwt-features-panel,
+.pkwt-admin-theme--dashboard .pkwt-toolbar--snippets,
+.pkwt-admin-theme--dashboard .pkwt-table-shell {
+	border: 1px solid var(--pkwt-line);
+	border-radius: 8px;
+	background: #fff;
+	box-shadow: 0 1px 2px rgba(15, 23, 42, .04);
+}
+.pkwt-admin-theme--dashboard .pkwt-panel { padding: clamp(18px, 3vw, 28px); }
+.pkwt-admin-theme--dashboard .pkwt-panel__title { font-size: 20px; font-weight: 700; letter-spacing: 0; }
+.pkwt-admin-theme--dashboard .pkwt-toolbar--snippets { padding: 13px 14px; }
+.pkwt-admin-theme--dashboard .pkwt-input,
+.pkwt-admin-theme--dashboard .pkwt-field input,
+.pkwt-admin-theme--dashboard .pkwt-field textarea,
+.pkwt-admin-theme--dashboard .pkwt-mgr-note__text,
+.pkwt-admin-theme--dashboard .pkwt-plugin-note__text,
+.pkwt-admin-theme--dashboard .CodeMirror,
+.pkwt-admin-theme--dashboard .pkwt-theme-settings select {
+	border: 1px solid #cbd5e1 !important;
+	border-radius: 6px !important;
+	background: #fff !important;
+	box-shadow: none !important;
+}
+.pkwt-admin-theme--dashboard .pkwt-input:focus,
+.pkwt-admin-theme--dashboard .pkwt-field input:focus,
+.pkwt-admin-theme--dashboard .pkwt-field textarea:focus,
+.pkwt-admin-theme--dashboard .pkwt-mgr-note__text:focus,
+.pkwt-admin-theme--dashboard .pkwt-plugin-note__text:focus,
+.pkwt-admin-theme--dashboard .pkwt-theme-settings select:focus { border-color: #6366f1 !important; outline: 2px solid #c7d2fe !important; outline-offset: 1px; }
+.pkwt-admin-theme--dashboard .pkwt-admin-shell .button,
+.pkwt-admin-theme--dashboard .pkwt-admin-shell .button.button-small {
+	border: 1px solid #cbd5e1;
+	border-radius: 6px !important;
+	background: #fff;
+	color: #334155;
+	font-family: inherit;
+	font-size: 12px;
+	font-weight: 600;
+	letter-spacing: 0;
+	line-height: 26px;
+	text-transform: none;
+}
+.pkwt-admin-theme--dashboard .button.pkwt-btn-primary,
+.pkwt-admin-theme--dashboard .pkwt-toolbar .button-primary,
+.pkwt-admin-theme--dashboard .pkwt-edit-action-bar .button-primary {
+	border-color: #475569 !important;
+	background: #475569 !important;
+	color: #fff !important;
+}
+.pkwt-admin-theme--dashboard .pkwt-admin-shell .button:hover,
+.pkwt-admin-theme--dashboard .pkwt-admin-shell .button:focus-visible { border-color: #6366f1; color: #3730a3; outline: 2px solid #c7d2fe; outline-offset: 1px; }
+.pkwt-admin-theme--dashboard .button.pkwt-btn-primary:hover,
+.pkwt-admin-theme--dashboard .pkwt-toolbar .button-primary:hover,
+.pkwt-admin-theme--dashboard .pkwt-edit-action-bar .button-primary:hover { border-color: #4338ca !important; background: #4338ca !important; color: #fff !important; }
+
+.pkwt-admin-theme--dashboard .pkwt-table-shell { padding: 0; }
+.pkwt-admin-theme--dashboard .pkwt-table thead th { border-bottom: 1px solid var(--pkwt-line); background: #f8fafc; color: var(--pkwt-muted); }
+.pkwt-admin-theme--dashboard .pkwt-table td { border-bottom: 1px solid #e2e8f0; }
+.pkwt-admin-theme--dashboard .pkwt-status-badge,
+.pkwt-admin-theme--dashboard .pkwt-content-badge,
+.pkwt-admin-theme--dashboard .pkwt-lab-card__cat,
+.pkwt-admin-theme--dashboard .pkwt-cat-count { border: 0; border-radius: 5px; background: #eef2f7; color: #475569; font-family: inherit; letter-spacing: .02em; text-transform: none; }
+.pkwt-admin-theme--dashboard .pkwt-status-badge.is-active { background: #e0e7ff; color: #3730a3; }
+.pkwt-admin-theme--dashboard .pkwt-lab-item { border: 1px solid var(--pkwt-line); border-radius: 7px; background: #fff; }
+.pkwt-admin-theme--dashboard .pkwt-lab-item.is-on { border-color: #a5b4fc; background: #f5f7ff; }
+.pkwt-admin-theme--dashboard .pkwt-lab-item__actions { border-top-color: #e2e8f0; }
+.pkwt-admin-theme--dashboard .pkwt-lab-item__code,
+.pkwt-admin-theme--dashboard .pkwt-lab-card__code { border: 0; border-radius: 6px; background: #1e293b; color: #e2e8f0; }
+.pkwt-admin-theme--dashboard .pkwt-switch__slider { border: 0; border-radius: 999px; background: #cbd5e1; }
+.pkwt-admin-theme--dashboard .pkwt-switch__slider::before { border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(15, 23, 42, .2); }
+.pkwt-admin-theme--dashboard .pkwt-switch input:checked + .pkwt-switch__slider { background: #6366f1; }
+.pkwt-admin-theme--dashboard .pkwt-switch input:focus-visible + .pkwt-switch__slider { outline-color: #6366f1; }
+.pkwt-admin-theme--dashboard .pkwt-revisions-panel,
+.pkwt-admin-theme--dashboard .pkwt-edit-action-bar { border: 1px solid #cbd5e1; border-radius: 8px; background: #f8fafc; box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.pkwt-admin-theme--dashboard .pkwt-mgr-card__icon,
+.pkwt-admin-theme--dashboard .pkwt-about-logo,
+.pkwt-admin-theme--dashboard .pkwt-plugin-thumb,
+.pkwt-admin-theme--dashboard .pkwt-plugin-thumb-fallback { border: 1px solid var(--pkwt-line); border-radius: 7px; background: #f8fafc; }
+.pkwt-admin-theme--dashboard .pkwt-about-feature { border-top: 1px solid var(--pkwt-line); border-radius: 7px; background: #f8fafc; }
+.pkwt-admin-theme--dashboard .pkwt-about-feature .dashicons,
+.pkwt-admin-theme--dashboard .pkwt-mgr-card__icon .dashicons { color: #6366f1; }
+.pkwt-theme-settings__form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pkwt-theme-settings__form label { color: var(--pkwt-muted); font-size: 12px; font-weight: 650; }
+.pkwt-theme-settings__form select { min-height: 32px; padding: 0 28px 0 9px; color: var(--pkwt-ink); }
+@media (max-width: 600px) {
+	.pkwt-theme-settings__form > * { width: 100%; }
+	.pkwt-theme-settings__form .button { text-align: center; }
+}

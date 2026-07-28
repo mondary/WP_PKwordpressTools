@@ -2,7 +2,7 @@
 /**
  * Plugin Name:       PK WordPress Tools
  * Description:       Boîte à outils WP : calendrier éditorial, outils de contenus, lecteur d'articles, Lab, extensions et export.
- * Version:           1.2026.16
+ * Version:           1.2026.27
  * Requires at least: 6.0
  * Requires PHP:      8.0
  * Author:            PK
@@ -12,7 +12,7 @@
 
 defined( 'ABSPATH' ) || exit;
 
-define( 'PKWT_VERSION', '1.2026.16' );
+define( 'PKWT_VERSION', '1.2026.27' );
 define( 'PKWT_DIR', plugin_dir_path( __FILE__ ) );
 define( 'PKWT_URL', plugin_dir_url( __FILE__ ) );
 define( 'PKWT_FILE', __FILE__ );

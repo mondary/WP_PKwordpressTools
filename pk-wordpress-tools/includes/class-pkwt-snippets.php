@@ -19,6 +19,7 @@ class PKWT_Snippets {
 	const BACKUPS_DB_VERSION_KEY = 'pkwt_snippet_backups_db_version';
 	const BACKUPS_DB_VERSION     = '2';
 	const PERSONAL_LIBRARY_OPTION = 'pkwt_personal_snippet_library';
+	const CODE_SNIPPETS_IMPORT_OPTION = 'pkwt_code_snippets_source_imports';
 	const BACKUP_RETENTION_LIMIT  = 20;
 
 	/** @var PKWT_Snippets|null */
@@ -142,7 +143,6 @@ class PKWT_Snippets {
 	 * Wire up hooks.
 	 */
 	public function init(): void {
-		// Run active snippets globally (front + back) on after_setup_theme.
 		add_action( 'after_setup_theme', [ $this, 'run_active_snippets' ], -1 );
 	}
 
@@ -150,10 +150,35 @@ class PKWT_Snippets {
 	 * Execute every active snippet in global scope.
 	 */
 	public function run_active_snippets(): void {
+		$external_codes = $this->active_code_snippets_hashes();
 		$snippets = $this->get_active_snippets();
 		foreach ( $snippets as $snippet ) {
+			if ( isset( $external_codes[ $this->snippet_code_hash( $snippet->code ) ] ) ) {
+				continue;
+			}
 			$this->run_snippet( $snippet->code, $snippet->name, (int) $snippet->id );
 		}
+	}
+
+	/** Return hashes of currently active Code Snippets source code. */
+	private function active_code_snippets_hashes(): array {
+		global $wpdb;
+		$table = $wpdb->prefix . 'snippets';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return [];
+		}
+
+		$hashes = [];
+		foreach ( (array) $wpdb->get_col( "SELECT code FROM {$table} WHERE active = 1" ) as $code ) {
+			$hashes[ $this->snippet_code_hash( $code ) ] = true;
+		}
+		return $hashes;
+	}
+
+	/** Normalize optional PHP opening tags before comparing code sources. */
+	private function snippet_code_hash( string $code ): string {
+		$code = preg_replace( '/^\s*<\?php\s*/i', '', $code );
+		return sha1( trim( (string) $code ) );
 	}
 
 	/**
@@ -360,7 +385,26 @@ class PKWT_Snippets {
 		}
 		$updated = false !== $wpdb->update( $table, [ 'active' => $active ? 1 : 0 ], [ 'id' => $id, 'deleted_at' => null ], [ '%d' ], [ '%d', '%s' ] );
 		$wpdb->query( $updated ? 'COMMIT' : 'ROLLBACK' );
+		if ( $updated ) {
+			$this->sync_matching_code_snippets_status( $current->code, $active );
+		}
 		return $updated;
+	}
+
+	/** Keep imported Code Snippets sources in sync with the PKWT toggle. */
+	private function sync_matching_code_snippets_status( string $code, bool $active ): void {
+		global $wpdb;
+		$table = $wpdb->prefix . 'snippets';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			return;
+		}
+
+		$hash = $this->snippet_code_hash( $code );
+		foreach ( (array) $wpdb->get_results( "SELECT id, code FROM {$table}" ) as $snippet ) {
+			if ( hash_equals( $hash, $this->snippet_code_hash( $snippet->code ) ) ) {
+				$wpdb->update( $table, [ 'active' => $active ? 1 : 0 ], [ 'id' => (int) $snippet->id ], [ '%d' ], [ '%d' ] );
+			}
+		}
 	}
 
 	/** @return object[] Immutable versions, newest first. */
@@ -640,5 +684,156 @@ class PKWT_Snippets {
 			}
 		}
 		return $count;
+	}
+
+	/**
+	 * Copy selected original sources from the external Code Snippets table.
+	 *
+	 * The external plugin is never loaded or written to. Its code value is passed
+	 * directly from its table to ours so its bytes are not normalized or rewritten.
+	 *
+	 * @return array{imported: string[], present: string[], unavailable: string[], error: bool}
+	 */
+	public function import_code_snippets_sources(): array {
+		global $wpdb;
+
+		$report = [ 'imported' => [], 'present' => [], 'unavailable' => [], 'error' => false ];
+		$table  = $wpdb->prefix . 'snippets';
+		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) ) !== $table ) {
+			$report['unavailable'] = array_column( self::code_snippets_import_targets(), 'label' );
+			return $report;
+		}
+
+		$columns = (array) $wpdb->get_col( "SHOW COLUMNS FROM {$table}", 0 );
+		if ( array_diff( [ 'id', 'name', 'code' ], $columns ) ) {
+			$report['unavailable'] = array_column( self::code_snippets_import_targets(), 'label' );
+			$report['error'] = true;
+			return $report;
+		}
+
+		$source_columns = in_array( 'description', $columns, true ) ? 'id, name, description, code' : 'id, name, code';
+		$source_rows = (array) $wpdb->get_results( "SELECT {$source_columns} FROM {$table}" );
+		$imports     = get_option( self::CODE_SNIPPETS_IMPORT_OPTION, [] );
+		$imports     = is_array( $imports ) ? $imports : [];
+		$library     = get_option( self::PERSONAL_LIBRARY_OPTION, [] );
+		$library     = is_array( $library ) ? array_map( 'absint', $library ) : [];
+
+		foreach ( self::code_snippets_import_targets() as $target ) {
+			$row = self::find_code_snippets_source( $source_rows, $target );
+			if ( ! $row ) {
+				$report['unavailable'][] = $target['label'];
+				continue;
+			}
+
+			$hash = hash( 'sha256', $row->code );
+			$key  = absint( $row->id ) . ':' . $hash;
+			$local_id = isset( $imports[ $key ]['local_id'] ) ? absint( $imports[ $key ]['local_id'] ) : 0;
+			if ( ! $local_id ) {
+				foreach ( $imports as $import ) {
+					if ( is_array( $import ) && ( $import['hash'] ?? '' ) === $hash && ! empty( $import['local_id'] ) && $this->get_snippet( absint( $import['local_id'] ), true ) ) {
+						$local_id = absint( $import['local_id'] );
+						$imports[ $key ] = [ 'local_id' => $local_id, 'target' => $target['id'], 'hash' => $hash ];
+						break;
+					}
+				}
+			}
+			if ( $local_id > 0 && $this->get_snippet( $local_id, true ) ) {
+				$library[] = $local_id;
+				$report['present'][] = $target['label'];
+				continue;
+			}
+
+			$description = isset( $row->description ) && '' !== $row->description ? $row->description . "\n\n" : '';
+			$local_id = $this->save_snippet( [
+				'name'        => $row->name,
+				'description' => $description . __( 'Source Code Snippets importé sans modification.', 'pk-wordpress-tools' ),
+				'code'        => $row->code,
+				'active'      => 0,
+			] );
+			if ( $local_id < 1 ) {
+				$report['unavailable'][] = $target['label'];
+				$report['error'] = true;
+				continue;
+			}
+
+			$imports[ $key ] = [
+				'local_id' => $local_id,
+				'target'   => $target['id'],
+				'hash'     => $hash,
+			];
+			$library[] = $local_id;
+			$report['imported'][] = $target['label'];
+		}
+
+		update_option( self::CODE_SNIPPETS_IMPORT_OPTION, $imports );
+		update_option( self::PERSONAL_LIBRARY_OPTION, array_values( array_unique( array_filter( $library ) ) ) );
+		return $report;
+	}
+
+	/** Return whether an original source for a native feature was imported. */
+	public function has_imported_code_snippets_source( string $feature_id ): bool {
+		$imports = get_option( self::CODE_SNIPPETS_IMPORT_OPTION, [] );
+		if ( ! is_array( $imports ) ) {
+			return false;
+		}
+		foreach ( $imports as $import ) {
+			if ( is_array( $import ) && ( $import['target'] ?? '' ) === $feature_id && ! empty( $import['local_id'] ) && $this->get_snippet( absint( $import['local_id'] ), true ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/** Return the native feature ID associated with an imported original, if any. */
+	public function imported_code_snippets_source_feature( int $snippet_id ): string {
+		$imports = get_option( self::CODE_SNIPPETS_IMPORT_OPTION, [] );
+		if ( ! is_array( $imports ) ) {
+			return '';
+		}
+		foreach ( $imports as $import ) {
+			if ( is_array( $import ) && absint( $import['local_id'] ?? 0 ) === $snippet_id ) {
+				return is_string( $import['target'] ?? null ) ? $import['target'] : '';
+			}
+		}
+		return '';
+	}
+
+	/** @return array<int, array{id: string, label: string, name?: string, signature?: string[]}> */
+	private static function code_snippets_import_targets(): array {
+		return [
+			[ 'id' => 'editorial-calendar', 'label' => 'ADMIN 📅 SCHEDULER - Calendar - v30', 'name' => 'ADMIN 📅 SCHEDULER - Calendar - v30' ],
+			[ 'id' => 'editor-next-free-slot', 'label' => 'ADMIN 📅 SCHEDULER - Editor Next Free Slot - v3', 'name' => 'ADMIN 📅 SCHEDULER - Editor Next Free Slot - v3' ],
+			[ 'id' => 'news-player', 'label' => '▶️ FAB - News Player Fullscreen Diaporama - v2', 'name' => '▶️ FAB - News Player Fullscreen Diaporama - v2' ],
+			[ 'id' => 'missing-featured-images', 'label' => 'ADMIN 🧰 DETECT - Missing Featured Images - v1', 'name' => 'ADMIN 🧰 DETECT - Missing Featured Images - v1' ],
+			[ 'id' => 'featured-image-column', 'label' => 'ADMIN - List Add featured images + Delete Media', 'name' => 'ADMIN - List Add featured images + Delete Media' ],
+			[ 'id' => 'admin-bar-search', 'label' => '🧭 ADMIN MENUBAR - Search - v4', 'name' => '🧭 ADMIN MENUBAR - Search - v4' ],
+			[ 'id' => 'active-plugins-first', 'label' => __( 'Tri des extensions actives en premier', 'pk-wordpress-tools' ), 'signature' => [ 'pre_current_active_plugins' ] ],
+			[ 'id' => 'post-search-auto', 'label' => 'POST - Search auto 🟢', 'name' => 'POST - Search auto 🟢' ],
+			[ 'id' => 'reading-progress', 'label' => '🦶 POST FOOTER - Progress Bar - v2', 'name' => '🦶 POST FOOTER - Progress Bar - v2' ],
+			[ 'id' => 'markdown-rag-export', 'label' => __( 'Export Markdown RAG', 'pk-wordpress-tools' ), 'signature' => [ 'ZipArchive', 'markdown' ] ],
+		];
+	}
+
+	/** @param object[] $rows @param array{id: string, label: string, name?: string, signature?: string[]} $target */
+	private static function find_code_snippets_source( array $rows, array $target ): ?object {
+		if ( isset( $target['name'] ) ) {
+			foreach ( $rows as $row ) {
+				if ( isset( $row->name ) && $target['name'] === $row->name ) {
+					return $row;
+				}
+			}
+		}
+		if ( empty( $target['signature'] ) ) {
+			return null;
+		}
+		foreach ( $rows as $row ) {
+			foreach ( $target['signature'] as $needle ) {
+				if ( false === stripos( $row->code, $needle ) ) {
+					continue 2;
+				}
+			}
+			return $row;
+		}
+		return null;
 	}
 }

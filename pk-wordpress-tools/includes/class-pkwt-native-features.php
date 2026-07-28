@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 class PKWT_Native_Features {
 
 	private const OPTION_KEY = 'pkwt_native_features';
+	private const REMOVED_OPTION_KEY = 'pkwt_removed_native_features';
 
 	/** @return array<string, array<string, string> > */
 	public static function definitions(): array {
@@ -47,6 +48,35 @@ class PKWT_Native_Features {
 		$features[ $feature ] = $enabled;
 		update_option( self::OPTION_KEY, $features );
 		return true;
+	}
+
+	/** Whether a native feature is hidden from the Library. */
+	public static function is_removed( string $feature ): bool {
+		return isset( self::definitions()[ $feature ] ) && in_array( $feature, self::get_removed(), true );
+	}
+
+	/** Remove or restore a native feature from the Library. */
+	public static function set_removed( string $feature, bool $removed ): bool {
+		if ( ! isset( self::definitions()[ $feature ] ) ) {
+			return false;
+		}
+
+		$features = self::get_removed();
+		if ( $removed ) {
+			self::set_enabled( $feature, false );
+			$features[] = $feature;
+		} else {
+			$features = array_diff( $features, [ $feature ] );
+		}
+		update_option( self::REMOVED_OPTION_KEY, array_values( array_unique( $features ) ) );
+		return true;
+	}
+
+	/** @return string[] */
+	private static function get_removed(): array {
+		$removed = get_option( self::REMOVED_OPTION_KEY, [] );
+		$removed = is_array( $removed ) ? array_map( 'sanitize_key', $removed ) : [];
+		return array_values( array_intersect( $removed, array_keys( self::definitions() ) ) );
 	}
 
 	/** @return array<string, bool> */

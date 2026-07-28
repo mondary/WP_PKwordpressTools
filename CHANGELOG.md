@@ -1,5 +1,49 @@
 # Changelog
 
+## [1.2026.27] - 2026-07-28
+### Fixed
+- Synced PKWT snippet toggles to identical Code Snippets sources.
+
+## [1.2026.26] - 2026-07-28
+### Fixed
+- Restored PKWT snippet execution while skipping sources already active in Code Snippets.
+
+## [1.2026.25] - 2026-07-28
+### Fixed
+- Stopped executing stored PKWT snippets to prevent duplicate execution with Code Snippets.
+
+## [1.2026.24] - 2026-07-28
+### Fixed
+- Disabled custom snippets during emergency recovery to restore a site affected by a fatal error.
+
+## [1.2026.23] - 2026-07-28
+### Changed
+- Reduced the Library to Notes & Icons and Missed Scheduled Posts Publisher.
+
+## [1.2026.22] - 2026-07-28
+### Added
+- Added native feature removal and restoration controls directly to the Library.
+
+## [1.2026.21] - 2026-07-28
+### Changed
+- Added personal snippet deletion, trash, restore, and permanent deletion directly to the Library.
+
+## [1.2026.20] - 2026-07-28
+### Fixed
+- Activating an imported original source now disables its native replacement to prevent duplicate behavior.
+
+## [1.2026.19] - 2026-07-28
+### Added
+- Added an administrator-only, idempotent importer for selected original Code Snippets sources, preserving source code unchanged in the personal library.
+
+## [1.2026.18] - 2026-07-28
+### Added
+- Added a selectable Dashboard or Brutaliste administration theme, with Dashboard as the default for WP PK Tools screens.
+
+## [1.2026.17] - 2026-07-28
+### Changed
+- Rebuilt the editorial calendar with efficient AJAX month views, accessible quick editing and date moves, quota notice, duplicate markers, and confirmed schedule reallocation.
+
 ## [1.2026.16] - 2026-07-28
 ### Fixed
 - Restricted Markdown RAG exports to administrators.
